@@ -1,0 +1,17 @@
+| # | Type | CWE | File | Status | Severity | CVSS |
+|---|---|---|---|---|---|---|
+| 1 | Buffer Overflow | CWE-787 | `src/module.c:8188` | Ruled Out | — | — |
+| 2 | Path Traversal | CWE-22 | `src/config.c:2741` | Confirmed | High | 8.0 |
+| 3 | Command Injection | CWE-78 | `src/script_lua.c:1233` | Confirmed | High | 8.8 |
+| 4 | Other | CWE-114 | `src/module.c:13349` | Ruled Out | — | — |
+| 5 | Other | CWE-306 | `src/cluster_legacy.c:2945` | Confirmed | Critical | 9.6 |
+| 6 | Deserialization | CWE-924 | `src/replication.c:3133` | Confirmed | High | 7.4 |
+| 7 | Other | CWE-287 | `src/acl.c:3220` | Confirmed | High | 8.3 |
+| 8 | Command Injection | CWE-78 | `.github/workflows/daily.yml:60` | Ruled Out | — | — |
+| 9 | Command Injection | CWE-77 | `.github/workflows/daily.yml:44` | Ruled Out | — | — |
+| 10 | Weak Cryptography | CWE-327 | `utils/redis-sha1.rb:25` | Ruled Out | — | — |
+| 11 | Integer Overflow | CWE-190 | `src/networking.c:3130` | Ruled Out | — | — |
+| 12 | Format String | CWE-134 | `src/redis-cli.c:3390` | Ruled Out | — | — |
+| 13 | Server-Side Request Forgery | CWE-918 | `...ctor-sets/examples/cli-tool/cli.py:30` | Ruled Out | — | — |
+
+**5 Confirmed, 8 Ruled Out** out of 13 findings.

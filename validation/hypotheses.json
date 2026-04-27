@@ -1,0 +1,109 @@
+[
+  {
+    "id": "H1",
+    "finding": "FIND-001",
+    "claim": "A loaded Redis module with name > 1019 chars causes vsnprintf OOB write in moduleLogRaw due to snprintf return value exceeding buffer size",
+    "predictions": [
+      {"id": "H1-P1", "prediction": "snprintf(msg, sizeof(msg), '<%s> ', module->name) with name > 1019 chars returns name_len > 1024, causing msg+name_len to point past the char msg[1024] stack buffer", "result": "Confirmed by code reading: snprintf returns would-be length when truncated (C99 spec). name_len = strlen(module->name) + 3 (for '<> '). If name > 1021 chars, name_len > 1024.", "status": "confirmed"},
+      {"id": "H1-P2", "prediction": "sizeof(msg) - name_len underflows to SIZE_MAX-range value since both are size_t, and vsnprintf writes arbitrarily past msg[] buffer end", "result": "Confirmed: sizeof(msg)=1024, name_len > 1024, subtraction wraps to ~18 exabytes. vsnprintf(msg+name_len, huge_size, ...) writes past stack buffer.", "status": "confirmed"},
+      {"id": "H1-P3", "prediction": "Reachability requires MODULE LOAD (enable-module-command != no) and the loaded .so defining a module name > 1021 chars in RedisModule_OnLoad, then calling RM_Log", "result": "Confirmed: module->name set from name argument to RM_Init at module.c:13136. No length limit enforced. Requires admin + enable-module-command.", "status": "confirmed"}
+    ],
+    "status": "confirmed"
+  },
+  {
+    "id": "H2",
+    "finding": "FIND-002",
+    "claim": "CONFIG SET dir /tmp + CONFIG SET dbfilename shell.php + BGSAVE writes attacker-controlled RDB content to /tmp/shell.php",
+    "predictions": [
+      {"id": "H2-P1", "prediction": "CONFIG SET dir calls chdir() at config.c:2741 with no path sanitization, changing the Redis working directory to attacker-supplied path", "result": "Confirmed: chdir(argv[0]) at config.c:2741. No validation of path.", "status": "confirmed"},
+      {"id": "H2-P2", "prediction": "dir and dbfilename are PROTECTED_CONFIG, gated by enable-protected-configs which defaults to PROTECTED_ACTION_ALLOWED_NO — CONFIG SET dir is blocked in default configuration", "result": "Confirmed: config.c:3327 sets PROTECTED_CONFIG for dir. config.c:3197 defaults enable-protected-configs to PROTECTED_ACTION_ALLOWED_NO.", "status": "confirmed"},
+      {"id": "H2-P3", "prediction": "When enable-protected-configs is 'yes' or 'local', any authenticated user with CONFIG SET ACL can chain CONFIG SET dir + CONFIG SET dbfilename + BGSAVE to write an RDB file to any writable directory", "result": "Confirmed: well-documented Redis exploitation technique. RDB file contains attacker-controlled key data that can embed arbitrary content.", "status": "confirmed"}
+    ],
+    "status": "confirmed"
+  },
+  {
+    "id": "H3",
+    "finding": "FIND-003",
+    "claim": "EVAL 'return os.execute(\"id\")' 0 executes shell commands via system() because os.execute is loaded into the Lua sandbox and the readonly table protection does not prevent function calls",
+    "predictions": [
+      {"id": "H3-P1", "prediction": "luaopen_os at script_lua.c:1233 loads the full os library including os.execute (which calls system() in deps/lua/src/loslib.c:39)", "result": "Confirmed: luaopen_os loads all os functions. loslib.c os_execute calls system(luaL_optstring(L,1,NULL)).", "status": "confirmed"},
+      {"id": "H3-P2", "prediction": "The readonly flag (lua_enablereadonlytable at lapi.c:1099) only prevents SETTABLE operations (lvm.c:141) — reading table values and calling functions is unrestricted", "result": "Confirmed: lvm.c:141 checks h->readonly only in the settable path. No check on GETTABLE or function calls.", "status": "confirmed"},
+      {"id": "H3-P3", "prediction": "No code explicitly removes os.execute, os.exit, os.remove, or os.rename from the os table before the table is locked readonly", "result": "Searched eval.c and script_lua.c thoroughly. No lua_pushnil/lua_settable sequence removing os.execute or other dangerous os functions. Debug table is set to nil (eval.c:218) but os functions are untouched.", "status": "confirmed"},
+      {"id": "H3-P4", "prediction": "EVAL requires @scripting ACL category (not @admin), so any authenticated user with default ACL can execute os.execute", "result": "Confirmed from command JSON specs: EVAL is ACL_CATEGORY_SCRIPTING, not ACL_CATEGORY_ADMIN.", "status": "confirmed"}
+    ],
+    "status": "confirmed"
+  },
+  {
+    "id": "H4",
+    "finding": "FIND-004",
+    "claim": "MODULE LOAD passes the path argument directly to dlopen() with no sanitization, giving arbitrary code execution when enable-module-command is enabled",
+    "predictions": [
+      {"id": "H4-P1", "prediction": "moduleLoad at module.c:13349 calls dlopen(path, RTLD_NOW|RTLD_LOCAL) where path is c->argv[2]->ptr from the client command", "result": "Confirmed: path goes directly to dlopen. Only check is stat() for execute permission (module.c:13340-13347).", "status": "confirmed"},
+      {"id": "H4-P2", "prediction": "enable-module-command defaults to PROTECTED_ACTION_ALLOWED_NO, blocking MODULE command in default config", "result": "Confirmed: config.c:3199 sets default to PROTECTED_ACTION_ALLOWED_NO. server.c:4432 checks allowProtectedAction.", "status": "confirmed"}
+    ],
+    "status": "confirmed"
+  },
+  {
+    "id": "H5",
+    "finding": "FIND-005",
+    "claim": "An attacker on the network can inject MEET messages to the cluster bus to join a cluster, inject PUBLISH messages, and trigger failover — no authentication required",
+    "predictions": [
+      {"id": "H5-P1", "prediction": "The cluster bus validates messages with only a 4-byte magic 'RCmb' and version number — no HMAC, no shared secret, no TLS cert check on the bus itself", "result": "Confirmed: cluster_legacy.c:3478 memcmp(hdr->sig,'RCmb',4) and version check only.", "status": "confirmed"},
+      {"id": "H5-P2", "prediction": "A MEET message from an unknown sender creates a new node entry unconditionally via clusterAddNode at cluster_legacy.c:2962", "result": "Confirmed: CLUSTERMSG_TYPE_MEET from unknown sender triggers clusterAddNode. No verification of sender identity.", "status": "confirmed"},
+      {"id": "H5-P3", "prediction": "PUBLISH messages can be injected to push arbitrary pub/sub messages to all cluster nodes at cluster_legacy.c:3260", "result": "Confirmed: PUBLISH processed at line 3260 with only sender-known check.", "status": "confirmed"}
+    ],
+    "status": "confirmed"
+  },
+  {
+    "id": "H6",
+    "finding": "FIND-006",
+    "claim": "A MITM on the replication link can inject crafted RDB data that the replica loads without integrity verification",
+    "predictions": [
+      {"id": "H6-P1", "prediction": "masterauth defaults to NULL — replica does not send AUTH to master unless explicitly configured", "result": "Confirmed: config.c:3184 EMPTY_STRING_IS_NULL for masterauth. replication.c:3133 only sends AUTH if server.masterauth is set.", "status": "confirmed"},
+      {"id": "H6-P2", "prediction": "Without TLS, the replication stream is plaintext TCP with no integrity protection — a MITM can inject a forged FULLRESYNC response with arbitrary RDB", "result": "Confirmed: no signature, no MAC, no integrity check on the replication stream. Size parsed from $<count> header at replication.c:2253.", "status": "confirmed"},
+      {"id": "H6-P3", "prediction": "The RDB data is loaded via rdbLoadRioWithLoadingCtx at replication.c:2518 — same deserialization path as RESTORE command but without the CRC64 check", "result": "Confirmed: replication.c:2518 calls rdbLoadRioWithLoadingCtx directly. CRC64 in verifyDumpPayload only applies to RESTORE command, not replication.", "status": "confirmed"}
+    ],
+    "status": "confirmed"
+  },
+  {
+    "id": "H7",
+    "finding": "FIND-007",
+    "claim": "An attacker who can sniff cluster bus traffic (no TLS) can extract the cluster secret from PING extension messages and use it to authenticate as 'internal connection' on the client port, bypassing all ACL",
+    "predictions": [
+      {"id": "H7-P1", "prediction": "The cluster secret (40 hex chars from /dev/urandom) is included in plaintext in PING extension messages sent over the cluster bus at cluster_legacy.c:2667", "result": "Confirmed: cluster secret sent in PING extensions. 40 hex chars = 160-bit entropy.", "status": "confirmed"},
+      {"id": "H7-P2", "prediction": "AUTH 'internal connection' <secret> on the client port sets c->user = NULL at acl.c:3241, which causes all ACL check functions to return ACL_OK", "result": "Confirmed: acl.c:3287 checks username == 'internal connection', line 3241 sets c->user = NULL. Lines 1776, 1832, 1859 all return ACL_OK when u==NULL.", "status": "confirmed"},
+      {"id": "H7-P3", "prediction": "The internal auth path is accessible from any client port connection (not restricted to cluster bus)", "result": "Confirmed: authCommand at acl.c:3284 processes the 'internal connection' username from any connected client. Only requires cluster_enabled.", "status": "confirmed"}
+    ],
+    "status": "confirmed"
+  },
+  {
+    "id": "H8",
+    "finding": "FIND-008",
+    "claim": "A user with repo write access can inject shell commands into CI runner via workflow_dispatch test_args input interpolated into run: blocks",
+    "predictions": [
+      {"id": "H8-P1", "prediction": "test_args input is interpolated directly into run: commands as ${{github.event.inputs.test_args}} without intermediate env var — shell metacharacters execute as commands", "result": "Confirmed: daily.yml uses direct ${{ }} interpolation in run: blocks across ~60 steps.", "status": "confirmed"},
+      {"id": "H8-P2", "prediction": "Exploitation requires write access to dispatch workflow_dispatch — not exploitable by external PR submitters", "result": "Confirmed: no pull_request_target trigger exists. Only workflow_dispatch (write access) and pull_request to release branches (inputs empty).", "status": "confirmed"}
+    ],
+    "status": "confirmed"
+  },
+  {
+    "id": "H9",
+    "finding": "FIND-009",
+    "claim": "GITHUB_ENV injection via newline in use_repo workflow_dispatch input enables environment poisoning and attacker-controlled checkout",
+    "predictions": [
+      {"id": "H9-P1", "prediction": "echo 'GITHUB_REPOSITORY=${{github.event.inputs.use_repo}}' >> $GITHUB_ENV with a newline in use_repo injects additional env vars (e.g., PATH=/attacker/bin:$PATH)", "result": "Confirmed: daily.yml line 44 uses echo >> GITHUB_ENV with unsanitized input. Newline injection is a known GITHUB_ENV attack.", "status": "confirmed"},
+      {"id": "H9-P2", "prediction": "The poisoned GITHUB_REPOSITORY feeds into actions/checkout repository: parameter, causing checkout of attacker-controlled repo code", "result": "Confirmed: checkout at line 50-53 uses env.GITHUB_REPOSITORY and env.GITHUB_HEAD_REF. Subsequent make/test steps execute whatever code is checked out.", "status": "confirmed"}
+    ],
+    "status": "confirmed"
+  },
+  {
+    "id": "H10",
+    "finding": "FIND-010",
+    "claim": "SHA1 usage in Ruby utility scripts is a weak crypto finding but not practically exploitable",
+    "predictions": [
+      {"id": "H10-P1", "prediction": "SHA1 is used for dataset consistency checking (rolling hash of key+value pairs) — not for authentication or signature verification", "result": "Confirmed: redis-sha1.rb chains Digest::SHA1.hexdigest(sha1+k) for dataset fingerprinting between master/replica. Non-security context.", "status": "confirmed"},
+      {"id": "H10-P2", "prediction": "SHA1 collision attack cannot forge matching rolling checksums for different datasets in this chaining construction", "result": "Confirmed: the chaining (hash(previous_hash + key)) means a collision on the final hash requires controlling the entire chain. Not practically exploitable.", "status": "confirmed"}
+    ],
+    "status": "confirmed"
+  }
+]

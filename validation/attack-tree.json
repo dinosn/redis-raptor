@@ -1,0 +1,19 @@
+{
+  "root": "ROOT",
+  "nodes": [
+    {"id": "ROOT", "goal": "Compromise Redis server or infrastructure", "technique": "Multiple attack vectors", "status": "exploring", "leads_to": "N1,N2,N3,N4"},
+    {"id": "N1", "goal": "Achieve RCE on Redis server", "technique": "Lua sandbox escape, MODULE LOAD, or write-anywhere", "status": "confirmed", "leads_to": "N1a,N1b,N1c"},
+    {"id": "N1a", "goal": "RCE via Lua os.execute (FIND-003)", "technique": "EVAL 'os.execute(cmd)' — os.execute loaded in sandbox, readonly only blocks table writes not function calls", "status": "confirmed", "leads_to": ""},
+    {"id": "N1b", "goal": "RCE via MODULE LOAD (FIND-004)", "technique": "MODULE LOAD /path/to/malicious.so — dlopen with no path sanitization", "status": "confirmed", "leads_to": ""},
+    {"id": "N1c", "goal": "Arbitrary file write via CONFIG SET dir (FIND-002)", "technique": "CONFIG SET dir /target + CONFIG SET dbfilename name + BGSAVE — write RDB to any writable path", "status": "confirmed", "leads_to": ""},
+    {"id": "N2", "goal": "Compromise cluster integrity", "technique": "Cluster bus injection or ACL bypass", "status": "confirmed", "leads_to": "N2a,N2b"},
+    {"id": "N2a", "goal": "Inject into cluster via unauthenticated bus (FIND-005)", "technique": "Send MEET/PUBLISH/FAILOVER messages to cluster bus port — 4-byte magic only, no crypto auth", "status": "confirmed", "leads_to": ""},
+    {"id": "N2b", "goal": "Full ACL bypass via cluster secret sniffing (FIND-007)", "technique": "Sniff cluster bus PING extensions for secret, AUTH as 'internal connection' on client port — c->user=NULL bypasses all ACL", "status": "confirmed", "leads_to": "N1"},
+    {"id": "N3", "goal": "Compromise replication integrity", "technique": "MITM on replication stream", "status": "exploring", "leads_to": "N3a"},
+    {"id": "N3a", "goal": "Inject crafted RDB via replication MITM (FIND-006)", "technique": "Forge FULLRESYNC with malicious RDB — no auth, no TLS, no integrity check by default", "status": "exploring", "leads_to": ""},
+    {"id": "N4", "goal": "Compromise CI/CD pipeline", "technique": "GitHub Actions workflow injection", "status": "confirmed", "leads_to": "N4a,N4b"},
+    {"id": "N4a", "goal": "Shell injection via test_args (FIND-008)", "technique": "workflow_dispatch with shell metacharacters in test_args — direct interpolation into run: blocks", "status": "confirmed", "leads_to": ""},
+    {"id": "N4b", "goal": "GITHUB_ENV injection via use_repo (FIND-009)", "technique": "Newline injection in use_repo → env poisoning → attacker-controlled checkout", "status": "confirmed", "leads_to": ""},
+    {"id": "N5", "goal": "Memory corruption via module name overflow (FIND-001)", "technique": "Load module with name > 1021 chars → vsnprintf OOB write in moduleLogRaw", "status": "confirmed", "leads_to": ""}
+  ]
+}

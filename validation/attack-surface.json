@@ -1,0 +1,32 @@
+{
+  "sources": [
+    {"type": "tcp_socket", "entry": "TCP client accept @ src/socket.c:301"},
+    {"type": "tls_socket", "entry": "TLS client accept @ src/tls.c:819"},
+    {"type": "unix_socket", "entry": "Unix socket accept @ src/unix.c:95"},
+    {"type": "resp_protocol", "entry": "RESP multibulk parser @ src/networking.c:3102"},
+    {"type": "replication", "entry": "RDB bulk transfer (replica side) @ src/replication.c:2253"},
+    {"type": "cluster_bus", "entry": "Cluster bus accept (no auth) @ src/cluster_legacy.c:1256"},
+    {"type": "config_runtime", "entry": "CONFIG SET @ src/config.c:819"},
+    {"type": "lua_eval", "entry": "EVAL script body @ src/eval.c:460"},
+    {"type": "module_load", "entry": "MODULE LOAD path @ src/module.c:13349"}
+  ],
+  "sinks": [
+    {"type": "shell_exec", "location": "os.execute -> system() @ deps/lua/src/loslib.c:39"},
+    {"type": "shell_exec", "location": "dlopen(path) @ src/module.c:13349"},
+    {"type": "file_write", "location": "chdir(path) CONFIG SET dir @ src/config.c:2741"},
+    {"type": "file_write", "location": "rdbSaveToFile @ src/rdb.c:1835"},
+    {"type": "deserialization", "location": "rdbLoadObject @ src/rdb.c:2278"},
+    {"type": "cluster_inject", "location": "clusterAddNode (MEET) @ src/cluster_legacy.c:2962"},
+    {"type": "buffer_overflow", "location": "vsnprintf OOB @ src/module.c:8188"},
+    {"type": "acl_bypass", "location": "c->user=NULL @ src/acl.c:3241"}
+  ],
+  "trust_boundaries": [
+    {"boundary": "Protected mode (default ON)", "check": "src/networking.c:1546"},
+    {"boundary": "Authentication gate (AUTH/requirepass)", "check": "src/server.c:4463"},
+    {"boundary": "ACL command check", "check": "src/acl.c:1908"},
+    {"boundary": "enable-protected-configs gate (default OFF=blocked)", "check": "src/config.c:2995"},
+    {"boundary": "enable-module-command gate (default OFF=blocked)", "check": "src/server.c:4432"},
+    {"boundary": "enable-debug-command gate (default OFF=blocked)", "check": "src/server.c:4430"},
+    {"boundary": "Cluster bus: 4-byte magic only (no crypto auth)", "check": "src/cluster_legacy.c:3478"}
+  ]
+}

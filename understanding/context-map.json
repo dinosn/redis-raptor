@@ -1,0 +1,411 @@
+{
+  "meta": {
+    "target": "/Users/krasn/tools/raptor/out/projects/redisnew/redis",
+    "timestamp": "2026-04-27T07:09:10Z",
+    "app_type": "daemon",
+    "language": ["c"],
+    "frameworks": ["custom_event_loop", "resp_protocol"],
+    "auth_model": "mixed",
+    "notes": "Redis in-memory data store. Single-threaded event loop, RESP protocol, optional ACL, optional TLS. Default config is fully open (nopass + allcommands)."
+  },
+  "sources": [
+    {"type": "tcp_socket", "entry": "TCP client accept @ src/socket.c:301"},
+    {"type": "tls_socket", "entry": "TLS client accept @ src/tls.c:819"},
+    {"type": "unix_socket", "entry": "Unix socket accept @ src/unix.c:95"},
+    {"type": "resp_protocol", "entry": "RESP multibulk parsing @ src/networking.c:3102"},
+    {"type": "inline_protocol", "entry": "Inline command parsing @ src/networking.c:2953"},
+    {"type": "replication", "entry": "SYNC/PSYNC from replica @ src/replication.c:1188"},
+    {"type": "replication", "entry": "REPLCONF capability announce @ src/replication.c:1446"},
+    {"type": "replication", "entry": "RDB bulk transfer (replica side) @ src/replication.c:2253"},
+    {"type": "cluster_bus", "entry": "Cluster bus accept (no auth) @ src/cluster_legacy.c:1256"},
+    {"type": "cluster_bus", "entry": "Cluster message read @ src/cluster_legacy.c:3459"},
+    {"type": "config_runtime", "entry": "CONFIG SET runtime changes @ src/config.c:819"}
+  ],
+  "sinks": [
+    {"type": "arbitrary_code_exec", "location": "MODULE LOAD dlopen @ src/module.c:13349"},
+    {"type": "script_exec", "location": "EVAL luaL_loadbuffer @ src/eval.c:460"},
+    {"type": "script_exec", "location": "FUNCTION LOAD luaL_loadbuffer @ src/function_lua.c:102"},
+    {"type": "process_exec", "location": "execve via DEBUG RESTART @ src/server.c:2526"},
+    {"type": "file_write", "location": "CONFIG SET dir → chdir @ src/config.c:2741"},
+    {"type": "file_write", "location": "RDB save fopen @ src/rdb.c:1835"},
+    {"type": "file_write", "location": "AOF write @ src/aof.c:760"},
+    {"type": "deserialization", "location": "rdbLoadObject @ src/rdb.c:2278"},
+    {"type": "deserialization", "location": "LZF decompress @ src/rdb.c:419"},
+    {"type": "replication_injection", "location": "DEBUG REPLICATE → replicationFeedSlaves @ src/debug.c:952"},
+    {"type": "dos_crash", "location": "DEBUG SLEEP (unbounded) @ src/debug.c:915"},
+    {"type": "dos_crash", "location": "DEBUG SEGFAULT/PANIC/ASSERT @ src/debug.c:536"},
+    {"type": "log_injection", "location": "DEBUG LOG serverLog @ src/debug.c:583"},
+    {"type": "format_string", "location": "insecure printf @ src/debug.c (minor)"}
+  ],
+  "trust_boundaries": [
+    {"boundary": "Protected mode", "check": "src/networking.c:1546"},
+    {"boundary": "Authentication gate (requirepass/ACL)", "check": "src/server.c:4463"},
+    {"boundary": "ACL command permission check", "check": "src/server.c:4480 → src/acl.c:1908"},
+    {"boundary": "ACL key-level permissions", "check": "src/acl.c:1580"},
+    {"boundary": "ACL channel-level permissions", "check": "src/acl.c:1744"},
+    {"boundary": "Protected configs (dir/dbfilename)", "check": "src/config.c:2995"},
+    {"boundary": "DEBUG/MODULE command gating", "check": "src/server.c:4430"},
+    {"boundary": "TLS client certificate auth", "check": "src/networking.c:1579"},
+    {"boundary": "Cluster internal auth (secret)", "check": "src/acl.c:3284"},
+    {"boundary": "Loading state command restrictions", "check": "src/server.c:4671"},
+    {"boundary": "Pre-auth querybuf limit (1MB)", "check": "src/networking.c:3849"},
+    {"boundary": "Pre-auth multibulk count limit (10)", "check": "src/networking.c:3133"}
+  ],
+  "entry_points": [
+    {
+      "id": "EP-001",
+      "type": "socket",
+      "method": "TCP",
+      "path": "TCP client connection",
+      "file": "src/socket.c",
+      "line": 301,
+      "accepts": "Raw TCP stream, RESP protocol or inline commands",
+      "auth_required": false,
+      "notes": "connSocketAcceptHandler → acceptCommonHandler → createClient → readQueryFromClient. Up to max_new_conns_per_cycle per event loop."
+    },
+    {
+      "id": "EP-002",
+      "type": "socket",
+      "method": "TLS",
+      "path": "TLS client connection",
+      "file": "src/tls.c",
+      "line": 819,
+      "accepts": "TLS-wrapped TCP stream with optional client cert",
+      "auth_required": false,
+      "notes": "tlsAcceptHandler. Client cert CN can auto-authenticate against ACL user if tls-auth-clients is set. No password needed if cert matches."
+    },
+    {
+      "id": "EP-003",
+      "type": "socket",
+      "method": "Unix",
+      "path": "Unix domain socket connection",
+      "file": "src/unix.c",
+      "line": 95,
+      "accepts": "Unix socket stream, always treated as local",
+      "auth_required": false,
+      "notes": "connUnixAcceptHandler. connUnixIsLocal always returns 1, so protected mode never triggers."
+    },
+    {
+      "id": "EP-004",
+      "type": "deserialize",
+      "method": "RESP",
+      "path": "RESP multibulk protocol parser",
+      "file": "src/networking.c",
+      "line": 3102,
+      "accepts": "Binary RESP frames: *<count>\\r\\n$<len>\\r\\n<data>\\r\\n...",
+      "auth_required": false,
+      "notes": "Pre-auth: up to 10 elements, 1MB querybuf. Post-auth: INT_MAX elements. Initial argv alloc capped at 1024."
+    },
+    {
+      "id": "EP-005",
+      "type": "deserialize",
+      "method": "inline",
+      "path": "Inline command protocol parser",
+      "file": "src/networking.c",
+      "line": 2953,
+      "accepts": "Text commands up to PROTO_INLINE_MAX_SIZE (64KB)",
+      "auth_required": false,
+      "notes": "sdssplitargs() parses shell-like quoting. No bound on argument count, only total line length."
+    },
+    {
+      "id": "EP-006",
+      "type": "ipc",
+      "method": "RESP",
+      "path": "Command dispatch (processCommand)",
+      "file": "src/server.c",
+      "line": 4357,
+      "accepts": "Parsed command argv from RESP/inline protocol",
+      "auth_required": true,
+      "notes": "Auth check at line 4463. CMD_NO_AUTH commands (AUTH, HELLO, QUIT, RESET) bypass. ACL check at line 4480."
+    },
+    {
+      "id": "EP-007",
+      "type": "ipc",
+      "method": "replication",
+      "path": "SYNC/PSYNC handler (master side)",
+      "file": "src/replication.c",
+      "line": 1188,
+      "accepts": "SYNC/PSYNC commands from authenticated replica clients",
+      "auth_required": true,
+      "notes": "syncCommand. Normal auth + ACL flow applies. Triggers full or partial resync."
+    },
+    {
+      "id": "EP-008",
+      "type": "ipc",
+      "method": "replication",
+      "path": "REPLCONF handler (master side)",
+      "file": "src/replication.c",
+      "line": 1446,
+      "accepts": "listening-port, ip-address (max 256 bytes), capa, ack, rdb-channel",
+      "auth_required": true,
+      "notes": "replconfCommand. ip-address length-checked against NET_HOST_STR_LEN."
+    },
+    {
+      "id": "EP-009",
+      "type": "deserialize",
+      "method": "replication",
+      "path": "RDB bulk transfer (replica receives from master)",
+      "file": "src/replication.c",
+      "line": 2253,
+      "accepts": "Binary RDB stream ($<count> or $EOF:<40-byte-mark>)",
+      "auth_required": false,
+      "notes": "readSyncBulkPayload. Runs after PSYNC handshake. No per-chunk size validation. Parses untrusted RDB from master."
+    },
+    {
+      "id": "EP-010",
+      "type": "ipc",
+      "method": "cluster_bus",
+      "path": "Cluster bus accept",
+      "file": "src/cluster_legacy.c",
+      "line": 1256,
+      "accepts": "Raw TCP/TLS connections on port+10000. Up to 1000 accepts/cycle.",
+      "auth_required": false,
+      "notes": "clusterAcceptHandler. NO AUTHENTICATION. 4-byte signature 'RCmb' and version check only. Any peer reaching bus port can inject cluster messages."
+    },
+    {
+      "id": "EP-011",
+      "type": "deserialize",
+      "method": "cluster_bus",
+      "path": "Cluster message parser",
+      "file": "src/cluster_legacy.c",
+      "line": 2778,
+      "accepts": "Binary cluster protocol messages (PING/PONG/MEET/PUBLISH/FAILOVER etc.)",
+      "auth_required": false,
+      "notes": "clusterProcessPacket. No cryptographic auth. Unknown senders accepted for MEET/PING/PONG. Buffer grows up to 1MB increments."
+    },
+    {
+      "id": "EP-012",
+      "type": "ipc",
+      "method": "config",
+      "path": "CONFIG SET runtime configuration",
+      "file": "src/config.c",
+      "line": 819,
+      "accepts": "Key-value pairs for server configuration",
+      "auth_required": true,
+      "notes": "configSetCommand. Requires @admin ACL. PROTECTED_CONFIG items (dir, dbfilename) gated by enable-protected-configs. IMMUTABLE items cannot be changed at runtime."
+    }
+  ],
+  "sink_details": [
+    {
+      "id": "SINK-001",
+      "type": "shell_exec",
+      "operation": "dlopen(path, RTLD_NOW|RTLD_LOCAL) + dlsym OnLoad callback",
+      "file": "src/module.c",
+      "line": 13349,
+      "reaches_from": ["EP-006"],
+      "trust_boundaries_crossed": ["TB-002", "TB-003", "TB-007"],
+      "parameterized": false,
+      "notes": "MODULE LOAD <path>. Path from c->argv[2]->ptr. No path sanitization. Requires CMD_ADMIN + CMD_PROTECTED (enable-module-command). Full RCE as Redis process user."
+    },
+    {
+      "id": "SINK-002",
+      "type": "deserialize",
+      "operation": "luaL_loadbuffer(script_body) + lua_pcall",
+      "file": "src/eval.c",
+      "line": 460,
+      "reaches_from": ["EP-006"],
+      "trust_boundaries_crossed": ["TB-002", "TB-003"],
+      "parameterized": false,
+      "notes": "EVAL command. Script body is attacker-supplied. Lua sandbox loads os module — os.execute() availability needs verification. Requires @scripting ACL, not @admin."
+    },
+    {
+      "id": "SINK-003",
+      "type": "deserialize",
+      "operation": "luaL_loadbuffer(function_body)",
+      "file": "src/function_lua.c",
+      "line": 102,
+      "reaches_from": ["EP-006"],
+      "trust_boundaries_crossed": ["TB-002", "TB-003"],
+      "parameterized": false,
+      "notes": "FUNCTION LOAD. Same Lua sandbox as EVAL."
+    },
+    {
+      "id": "SINK-004",
+      "type": "file_write",
+      "operation": "chdir(argv[0]) via CONFIG SET dir",
+      "file": "src/config.c",
+      "line": 2741,
+      "reaches_from": ["EP-012"],
+      "trust_boundaries_crossed": ["TB-002", "TB-003", "TB-006"],
+      "parameterized": false,
+      "notes": "Classic write-anywhere chain: CONFIG SET dir /etc → CONFIG SET dbfilename passwd → BGSAVE. No path sanitization. Protected by enable-protected-configs (default OFF)."
+    },
+    {
+      "id": "SINK-005",
+      "type": "file_write",
+      "operation": "fopen(filename, 'w') for RDB save",
+      "file": "src/rdb.c",
+      "line": 1835,
+      "reaches_from": ["EP-012"],
+      "trust_boundaries_crossed": ["TB-002", "TB-003"],
+      "parameterized": false,
+      "notes": "Filename derived from server.rdb_filename + server.rdb_dir, both CONFIG SET-able. Chained with SINK-004."
+    },
+    {
+      "id": "SINK-006",
+      "type": "deserialization",
+      "operation": "rdbLoadObject + lzf_decompress",
+      "file": "src/rdb.c",
+      "line": 2278,
+      "reaches_from": ["EP-009", "EP-006"],
+      "trust_boundaries_crossed": ["TB-002"],
+      "parameterized": false,
+      "notes": "Parses binary RDB into Redis objects. RESTORE command (auth required) or replication (post-handshake, no per-chunk auth). LZF decompress trusts clen/len from stream. CRC64 check for RESTORE only."
+    },
+    {
+      "id": "SINK-007",
+      "type": "replication_injection",
+      "operation": "replicationFeedSlaves(arbitrary_data)",
+      "file": "src/debug.c",
+      "line": 952,
+      "reaches_from": ["EP-006"],
+      "trust_boundaries_crossed": ["TB-002", "TB-003", "TB-007"],
+      "parameterized": false,
+      "notes": "DEBUG REPLICATE <string>. Injects arbitrary commands to all replicas. Requires CMD_ADMIN + CMD_PROTECTED."
+    },
+    {
+      "id": "SINK-008",
+      "type": "dos_crash",
+      "operation": "nanosleep(unbounded_duration) / intentional SIGSEGV",
+      "file": "src/debug.c",
+      "line": 536,
+      "reaches_from": ["EP-006"],
+      "trust_boundaries_crossed": ["TB-002", "TB-003", "TB-007"],
+      "parameterized": false,
+      "notes": "DEBUG SLEEP/SEGFAULT/PANIC. No upper bound on sleep. Server-freezing DoS or crash. Requires CMD_ADMIN + CMD_PROTECTED."
+    },
+    {
+      "id": "SINK-009",
+      "type": "process_exec",
+      "operation": "execve(server.executable, server.exec_argv, environ)",
+      "file": "src/server.c",
+      "line": 2526,
+      "reaches_from": ["EP-006"],
+      "trust_boundaries_crossed": ["TB-002", "TB-003", "TB-007"],
+      "parameterized": false,
+      "notes": "DEBUG RESTART / DEBUG CRASH-AND-RECOVER. Restarts Redis process. server.executable from argv[0] at startup."
+    }
+  ],
+  "boundary_details": [
+    {
+      "id": "TB-001",
+      "type": "input_validation",
+      "file": "src/networking.c",
+      "line": 1546,
+      "covers": ["EP-001", "EP-002"],
+      "gaps": "Only triggers when DefaultUser has USER_FLAG_NOPASS. If requirepass is set, protected mode does nothing — password is the gate. Does not apply to EP-003 (unix socket always local)."
+    },
+    {
+      "id": "TB-002",
+      "type": "auth_check",
+      "file": "src/server.c",
+      "line": 4463,
+      "covers": ["EP-006"],
+      "gaps": "CMD_NO_AUTH commands (AUTH, HELLO, QUIT, RESET) bypass. Default user starts nopass + allcommands — any fresh instance is wide open. requirepass is runtime-settable by authenticated users."
+    },
+    {
+      "id": "TB-003",
+      "type": "authz_check",
+      "file": "src/acl.c",
+      "line": 1908,
+      "covers": ["EP-006"],
+      "gaps": "c->user == NULL = unconditional bypass (cluster internal auth path). AOF client skips ACL during loading. Default user ALLCOMMANDS fast path short-circuits all checks."
+    },
+    {
+      "id": "TB-004",
+      "type": "authz_check",
+      "file": "src/acl.c",
+      "line": 1580,
+      "covers": ["EP-006"],
+      "gaps": "c->user == NULL = bypass. Default user has ALLKEYS."
+    },
+    {
+      "id": "TB-005",
+      "type": "authz_check",
+      "file": "src/acl.c",
+      "line": 1744,
+      "covers": ["EP-006"],
+      "gaps": "c->user == NULL = bypass. Unsubscribe ops skip channel ACL check."
+    },
+    {
+      "id": "TB-006",
+      "type": "input_validation",
+      "file": "src/config.c",
+      "line": 2995,
+      "covers": ["EP-012"],
+      "gaps": "enable-protected-configs defaults to NO — dir and dbfilename are freely changeable by any authenticated admin user. Must be set in config file (IMMUTABLE_CONFIG)."
+    },
+    {
+      "id": "TB-007",
+      "type": "input_validation",
+      "file": "src/server.c",
+      "line": 4430,
+      "covers": ["EP-006"],
+      "gaps": "enable-debug-command and enable-module-command default to NO. Check runs before ACL. If set to 'yes' and ACL allows @dangerous, full DEBUG/MODULE surface is exposed."
+    },
+    {
+      "id": "TB-008",
+      "type": "auth_check",
+      "file": "src/networking.c",
+      "line": 1579,
+      "covers": ["EP-002"],
+      "gaps": "TLS cert CN auto-authenticates as matching ACL user with no password. tls-auth-clients optional allows cert-less connections. Disabled user check is present."
+    },
+    {
+      "id": "TB-009",
+      "type": "auth_check",
+      "file": "src/acl.c",
+      "line": 3284,
+      "covers": ["EP-010"],
+      "gaps": "Hardcoded username 'internal connection'. Success sets c->user = NULL = full ACL bypass. Cluster secret is sole gate. Exposure of secret = complete unrestricted access."
+    },
+    {
+      "id": "TB-010",
+      "type": "input_validation",
+      "file": "src/networking.c",
+      "line": 3849,
+      "covers": ["EP-004"],
+      "gaps": "1MB querybuf limit for unauth clients. Master clients have no limit. Limit check leaks auth status (server drops >1MB before auth vs accepts after)."
+    },
+    {
+      "id": "TB-011",
+      "type": "input_validation",
+      "file": "src/networking.c",
+      "line": 3133,
+      "covers": ["EP-004"],
+      "gaps": "Unauth clients limited to 10 multibulk elements. Arguments are parsed and createObject called before auth check in processCommand."
+    }
+  ],
+  "unchecked_flows": [
+    {
+      "entry_point": "EP-010",
+      "sink": "ALL",
+      "missing_boundary": "Cluster bus has no cryptographic auth. 4-byte signature 'RCmb' only. Any peer reaching bus port (default: client_port+10000) can inject arbitrary gossip, failover requests, or PUBLISH messages."
+    },
+    {
+      "entry_point": "EP-001",
+      "sink": "SINK-004",
+      "missing_boundary": "Default config: nopass + allcommands + enable-protected-configs=no. Fresh Redis instance allows CONFIG SET dir/dbfilename → BGSAVE for arbitrary file write without any authentication."
+    },
+    {
+      "entry_point": "EP-001",
+      "sink": "SINK-002",
+      "missing_boundary": "Default config: nopass + @scripting enabled. Lua EVAL with os module loaded — os.execute() availability in sandbox needs verification. Any unauthenticated client can execute Lua scripts."
+    },
+    {
+      "entry_point": "EP-009",
+      "sink": "SINK-006",
+      "missing_boundary": "Replica receives RDB from master post-handshake with no per-chunk validation. Compromised master can send crafted RDB. LZF decompress trusts attacker-supplied lengths."
+    },
+    {
+      "entry_point": "EP-001",
+      "sink": "SINK-001",
+      "missing_boundary": "If enable-module-command=yes and default config (nopass + allcommands): unauthenticated MODULE LOAD gives full RCE. Default is protected (enable-module-command=no), but misconfiguration is common."
+    },
+    {
+      "entry_point": "EP-010",
+      "sink": "SINK-006",
+      "missing_boundary": "Cluster bus RESTORE-like operations can trigger rdbLoadObject with attacker-crafted payloads. No auth on cluster bus beyond 4-byte signature."
+    }
+  ]
+}

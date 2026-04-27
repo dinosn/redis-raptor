@@ -1,0 +1,97 @@
+version: "3.8"
+
+services:
+  # Standalone Redis with permissive config for FIND-002, FIND-003
+  redis-standalone:
+    image: redis:7.2
+    container_name: raptor-redis-standalone
+    ports:
+      - "6399:6379"
+    command: >
+      redis-server
+      --enable-protected-configs yes
+      --enable-debug-command yes
+      --loglevel verbose
+    networks:
+      redisnet:
+        ipv4_address: 172.28.0.10
+
+  # 3-node Redis cluster for FIND-005, FIND-007
+  redis-cluster-1:
+    image: redis:7.2
+    container_name: raptor-redis-cluster-1
+    ports:
+      - "6401:6379"
+      - "16401:16379"
+    command: >
+      redis-server
+      --cluster-enabled yes
+      --cluster-config-file nodes.conf
+      --cluster-node-timeout 5000
+      --appendonly yes
+      --loglevel verbose
+      --bind 0.0.0.0
+      --protected-mode no
+    networks:
+      redisnet:
+        ipv4_address: 172.28.0.11
+
+  redis-cluster-2:
+    image: redis:7.2
+    container_name: raptor-redis-cluster-2
+    ports:
+      - "6402:6379"
+      - "16402:16379"
+    command: >
+      redis-server
+      --cluster-enabled yes
+      --cluster-config-file nodes.conf
+      --cluster-node-timeout 5000
+      --appendonly yes
+      --loglevel verbose
+      --bind 0.0.0.0
+      --protected-mode no
+    networks:
+      redisnet:
+        ipv4_address: 172.28.0.12
+
+  redis-cluster-3:
+    image: redis:7.2
+    container_name: raptor-redis-cluster-3
+    ports:
+      - "6403:6379"
+      - "16403:16379"
+    command: >
+      redis-server
+      --cluster-enabled yes
+      --cluster-config-file nodes.conf
+      --cluster-node-timeout 5000
+      --appendonly yes
+      --loglevel verbose
+      --bind 0.0.0.0
+      --protected-mode no
+    networks:
+      redisnet:
+        ipv4_address: 172.28.0.13
+
+  # Replica for FIND-006 (no masterauth, no TLS)
+  redis-replica:
+    image: redis:7.2
+    container_name: raptor-redis-replica
+    ports:
+      - "6404:6379"
+    command: >
+      redis-server
+      --loglevel verbose
+      --bind 0.0.0.0
+      --protected-mode no
+    networks:
+      redisnet:
+        ipv4_address: 172.28.0.20
+
+networks:
+  redisnet:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16

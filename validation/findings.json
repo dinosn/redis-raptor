@@ -1,0 +1,1005 @@
+{
+  "stage": "F",
+  "timestamp": "2026-04-27T11:51:27.911155",
+  "target_path": "/Users/krasn/tools/raptor/out/projects/redisnew/redis",
+  "vuln_type_focus": null,
+  "source": "",
+  "findings": [
+    {
+      "id": "FIND-001",
+      "file": "src/module.c",
+      "function": "moduleLogRaw",
+      "line": 8188,
+      "vuln_type": "buffer_overflow",
+      "status": "ruled_out",
+      "confidence": "medium",
+      "cwe_id": "CWE-787",
+      "candidate_reasoning": "snprintf returns the would-be length (not capped to sizeof(msg)) when truncating. If module->name is > ~1019 chars, name_len >= sizeof(msg). Then vsnprintf(msg + name_len, sizeof(msg) - name_len, ...) writes past msg[] since msg+name_len is past the buffer end, and sizeof(msg) - name_len underflows as size_t to a huge value.",
+      "dataflow_summary": "MODULE LOAD with long module name -> module->name -> snprintf returns name_len > sizeof(msg) -> vsnprintf(msg + name_len, sizeof(msg) - name_len, ...) writes OOB",
+      "proof_lines": [
+        8188,
+        8189
+      ],
+      "proof_source": "module->name from loaded .so via REDISMODULE_INIT (attacker-controlled module name > 1019 chars)",
+      "proof_sink": "vsnprintf(msg + name_len, sizeof(msg) - name_len, fmt, ap) writes past end of char msg[1024]",
+      "origin": "claude_native",
+      "stage_a_summary": {
+        "confidence": "medium",
+        "status": "not_disproven",
+        "candidate_reasoning": "No bounds check on name_len before using as offset. Requires loading a module with name > 1019 chars. Requires MODULE LOAD privilege (admin + enable-module-command). Not remotely exploitable without auth."
+      },
+      "stage_b_summary": {
+        "hypothesis_id": "H1",
+        "hypothesis_status": "confirmed",
+        "proximity": 4,
+        "attack_path_id": "AP-001"
+      },
+      "checklist_verified": true,
+      "sanity_check": {
+        "passed": true,
+        "file_exists": true,
+        "code_verbatim": true,
+        "flow_real": true,
+        "code_reachable": true,
+        "verified_code_lines": [
+          8188,
+          8191
+        ],
+        "issues": []
+      },
+      "stage_c_summary": {
+        "passed": true,
+        "checks": {
+          "file_exists": true,
+          "code_verbatim": true,
+          "flow_real": true,
+          "reachable": true
+        }
+      },
+      "test_code_flag": false,
+      "ruling": {
+        "evidence_synthesis": {
+          "stage_a_confidence": "medium",
+          "stage_b_hypothesis": "confirmed",
+          "stage_c_passed": true,
+          "synthesis": "Real buffer overflow in moduleLogRaw, but exploitation requires MODULE LOAD which already gives RCE \u2014 redundant."
+        },
+        "status": "ruled_out",
+        "disqualifier": "D-1.5",
+        "reason": "MODULE LOAD already provides arbitrary code execution via dlopen. A buffer overflow in moduleLogRaw during module logging adds no additional capability \u2014 the attacker already has full RCE from the loaded .so. Privilege tautology: the prerequisite (MODULE LOAD) already implies the outcome (code execution).",
+        "checks": {
+          "code_context": "production",
+          "preconditions": [
+            "requires admin auth",
+            "requires enable-module-command != no",
+            "requires .so upload to filesystem"
+          ],
+          "hedging_detected": []
+        }
+      },
+      "cvss_vector": null,
+      "stage_d_summary": {
+        "ruling": "ruled_out",
+        "disqualifier": "D-1.5",
+        "cvss_vector": null
+      },
+      "final_status": "ruled_out",
+      "is_exploitable": false,
+      "stage_f_summary": {
+        "corrections": [],
+        "review_notes": "Ruled out D-1.5. Correct \u2014 MODULE LOAD prerequisite already grants RCE."
+      }
+    },
+    {
+      "id": "FIND-002",
+      "file": "src/config.c",
+      "function": "setConfigDirOption",
+      "line": 2741,
+      "vuln_type": "path_traversal",
+      "status": "confirmed",
+      "confidence": "high",
+      "cwe_id": "CWE-22",
+      "candidate_reasoning": "CONFIG SET dir calls chdir(argv[0]) with no path validation. Combined with CONFIG SET dbfilename and BGSAVE, allows writing arbitrary RDB files to any writable path. Classic Redis RCE vector. Protected by enable-protected-configs (default OFF \u2014 blocks CONFIG SET dir). When misconfigured (enable-protected-configs=yes), any admin user can write files anywhere.",
+      "dataflow_summary": "CONFIG SET dir <path> -> chdir(argv[0]) at config.c:2741 -> BGSAVE -> rdbSaveToFile writes dump.rdb to new cwd",
+      "proof_lines": [
+        2735,
+        2746
+      ],
+      "proof_source": "c->argv CONFIG SET dir <attacker_path>",
+      "proof_sink": "chdir(argv[0]) at config.c:2741; rdbSaveBackground at rdb.c:4605",
+      "origin": "claude_native",
+      "stage_a_summary": {
+        "confidence": "high",
+        "status": "not_disproven",
+        "candidate_reasoning": "Confirmed design-level write-anywhere. Blocked by default (PROTECTED_CONFIG + enable-protected-configs=no), but commonly misconfigured. Well-documented real-world Redis RCE vector."
+      },
+      "stage_b_summary": {
+        "hypothesis_id": "H2",
+        "hypothesis_status": "confirmed",
+        "proximity": 3,
+        "attack_path_id": "AP-002"
+      },
+      "checklist_verified": true,
+      "sanity_check": {
+        "passed": true,
+        "file_exists": true,
+        "code_verbatim": true,
+        "flow_real": true,
+        "code_reachable": true,
+        "verified_code_lines": [
+          2735,
+          2746
+        ],
+        "issues": []
+      },
+      "stage_c_summary": {
+        "passed": true,
+        "checks": {
+          "file_exists": true,
+          "code_verbatim": true,
+          "flow_real": true,
+          "reachable": true
+        }
+      },
+      "test_code_flag": false,
+      "ruling": {
+        "evidence_synthesis": {
+          "stage_a_confidence": "high",
+          "stage_b_hypothesis": "confirmed",
+          "stage_c_passed": true,
+          "synthesis": "Real write-anywhere primitive via CONFIG SET dir + BGSAVE. Blocked by default (enable-protected-configs=no), but exploitable when misconfigured. Well-documented real-world attack vector."
+        },
+        "status": "confirmed",
+        "disqualifier": null,
+        "reason": null,
+        "checks": {
+          "code_context": "production",
+          "preconditions": [
+            "requires enable-protected-configs = yes or local",
+            "requires auth with @admin ACL (CONFIG SET)"
+          ],
+          "hedging_detected": [
+            "blocked by default \u2014 requires misconfiguration"
+          ]
+        }
+      },
+      "cvss_vector": "CVSS:3.1/AV:N/AC:H/PR:H/UI:N/S:C/C:H/I:H/A:H",
+      "stage_d_summary": {
+        "ruling": "confirmed",
+        "disqualifier": null,
+        "cvss_vector": "CVSS:3.1/AV:N/AC:H/PR:H/UI:N/S:C/C:H/I:H/A:H"
+      },
+      "feasibility": {
+        "status": "not_applicable"
+      },
+      "stage_e_summary": {
+        "status": "not_applicable"
+      },
+      "final_status": "confirmed",
+      "is_exploitable": false,
+      "cvss_score_estimate": 8.0,
+      "severity_assessment": "high",
+      "stage_f_summary": {
+        "corrections": [],
+        "review_notes": "CVSS 8.0 High. AC:H justified by enable-protected-configs default blocking CONFIG SET dir. PR:H correct for @admin ACL. Well-documented attack vector, no changes needed."
+      }
+    },
+    {
+      "id": "FIND-003",
+      "file": "src/script_lua.c",
+      "function": "luaLoadLibraries",
+      "line": 1233,
+      "vuln_type": "command_injection",
+      "status": "confirmed",
+      "confidence": "high",
+      "cwe_id": "CWE-78",
+      "candidate_reasoning": "The Lua sandbox loads luaopen_os making the full os library available. os.execute in bundled Lua (deps/lua/src/loslib.c:38-41) calls system(). The readonly table protection only blocks writes to the table, not calls of existing C functions. os.execute is never explicitly removed. EVAL is @scripting ACL (not @admin), so any authenticated user with default ACL can execute shell commands.",
+      "dataflow_summary": "EVAL <lua_script> -> luaopen_os loaded (script_lua.c:1233) -> os.execute('cmd') -> system() in deps/lua/src/loslib.c:39",
+      "proof_lines": [
+        1227,
+        1237
+      ],
+      "proof_source": "Attacker-controlled Lua script via EVAL command",
+      "proof_sink": "system() call in deps/lua/src/loslib.c:39 via os.execute",
+      "origin": "claude_native",
+      "stage_a_summary": {
+        "confidence": "high",
+        "status": "not_disproven",
+        "candidate_reasoning": "os.execute calls system() and is loaded into the Lua sandbox but never removed. Readonly flag prevents table writes, not function calls. Any authenticated user with @scripting ACL can achieve RCE via EVAL."
+      },
+      "stage_b_summary": {
+        "hypothesis_id": "H3",
+        "hypothesis_status": "confirmed",
+        "proximity": 7,
+        "attack_path_id": "AP-003"
+      },
+      "checklist_verified": true,
+      "sanity_check": {
+        "passed": true,
+        "file_exists": true,
+        "code_verbatim": true,
+        "flow_real": true,
+        "code_reachable": true,
+        "verified_code_lines": [
+          1227,
+          1237
+        ],
+        "issues": [
+          "Verified: os_execute at deps/lua/src/loslib.c:38-41 calls system(). luaopen_os at script_lua.c:1233 loads it. Readonly at lvm.c:141 only checks SETTABLE. No removal of os.execute found in eval.c or script_lua.c."
+        ]
+      },
+      "stage_c_summary": {
+        "passed": true,
+        "checks": {
+          "file_exists": true,
+          "code_verbatim": true,
+          "flow_real": true,
+          "reachable": true
+        }
+      },
+      "test_code_flag": false,
+      "ruling": {
+        "evidence_synthesis": {
+          "stage_a_confidence": "high",
+          "stage_b_hypothesis": "confirmed",
+          "stage_c_passed": true,
+          "synthesis": "os.execute loaded in Lua sandbox, never removed. Readonly table protection only prevents writes, not function calls (lvm.c:141). EVAL is @scripting not @admin \u2014 any authenticated user gets RCE via os.execute -> system()."
+        },
+        "status": "confirmed",
+        "disqualifier": null,
+        "reason": null,
+        "checks": {
+          "code_context": "production",
+          "preconditions": [
+            "requires authentication (requirepass or ACL user)"
+          ],
+          "hedging_detected": []
+        }
+      },
+      "cvss_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H",
+      "stage_d_summary": {
+        "ruling": "confirmed",
+        "disqualifier": null,
+        "cvss_vector": "CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H"
+      },
+      "feasibility": {
+        "status": "not_applicable"
+      },
+      "stage_e_summary": {
+        "status": "not_applicable"
+      },
+      "final_status": "confirmed",
+      "is_exploitable": false,
+      "cvss_score_estimate": 8.8,
+      "severity_assessment": "high",
+      "stage_f_summary": {
+        "corrections": [],
+        "review_notes": "CVSS 8.8 High. Highest-impact confirmed finding. PR:L correct \u2014 EVAL is @scripting not @admin. Verified: os.execute loaded, never removed, readonly only prevents table writes. Code path: EVAL -> luaCreateFunction -> luaL_loadbuffer -> script calls os.execute -> system(). No corrections."
+      }
+    },
+    {
+      "id": "FIND-004",
+      "file": "src/module.c",
+      "function": "moduleLoad",
+      "line": 13349,
+      "vuln_type": "other",
+      "status": "ruled_out",
+      "confidence": "high",
+      "cwe_id": "CWE-114",
+      "candidate_reasoning": "MODULE LOAD calls dlopen(path, RTLD_NOW|RTLD_LOCAL) with no path sanitization beyond stat() execute-permission check. Attacker-controlled path goes directly to dlopen. Gated by enable-module-command (default: disabled). When enabled, trivial RCE by loading a malicious .so.",
+      "dataflow_summary": "MODULE LOAD <path> -> moduleLoad(c->argv[2]->ptr) -> dlopen(path) at module.c:13349",
+      "proof_lines": [
+        13336,
+        13364
+      ],
+      "proof_source": "c->argv[2]->ptr (attacker-controlled .so path)",
+      "proof_sink": "dlopen(path, RTLD_NOW|RTLD_LOCAL) at module.c:13349",
+      "origin": "claude_native",
+      "stage_a_summary": {
+        "confidence": "high",
+        "status": "not_disproven",
+        "candidate_reasoning": "No path sanitization. Direct dlopen of attacker-supplied path. Gated by enable-module-command (default: disabled) and CMD_ADMIN ACL."
+      },
+      "stage_b_summary": {
+        "hypothesis_id": "H4",
+        "hypothesis_status": "confirmed",
+        "proximity": 3,
+        "attack_path_id": "AP-004"
+      },
+      "checklist_verified": true,
+      "sanity_check": {
+        "passed": true,
+        "file_exists": true,
+        "code_verbatim": true,
+        "flow_real": true,
+        "code_reachable": true,
+        "verified_code_lines": [
+          13336,
+          13364
+        ],
+        "issues": []
+      },
+      "stage_c_summary": {
+        "passed": true,
+        "checks": {
+          "file_exists": true,
+          "code_verbatim": true,
+          "flow_real": true,
+          "reachable": true
+        }
+      },
+      "test_code_flag": false,
+      "ruling": {
+        "evidence_synthesis": {
+          "stage_a_confidence": "high",
+          "stage_b_hypothesis": "confirmed",
+          "stage_c_passed": true,
+          "synthesis": "MODULE LOAD works as designed \u2014 dlopen of admin-specified path is the feature, not a vulnerability."
+        },
+        "status": "ruled_out",
+        "disqualifier": "D-1.5",
+        "reason": "MODULE LOAD is explicitly designed to load arbitrary shared libraries for execution. The 'no path sanitization' is not a vulnerability \u2014 it is the intended behavior. An admin who can run MODULE LOAD is expected to load any .so. The capability IS the privilege.",
+        "checks": {
+          "code_context": "production",
+          "preconditions": [
+            "requires admin ACL",
+            "requires enable-module-command != no"
+          ],
+          "hedging_detected": []
+        }
+      },
+      "cvss_vector": null,
+      "stage_d_summary": {
+        "ruling": "ruled_out",
+        "disqualifier": "D-1.5",
+        "cvss_vector": null
+      },
+      "final_status": "ruled_out",
+      "is_exploitable": false,
+      "stage_f_summary": {
+        "corrections": [],
+        "review_notes": "Ruled out D-1.5. Correct \u2014 MODULE LOAD is designed functionality, not a vulnerability."
+      }
+    },
+    {
+      "id": "FIND-005",
+      "file": "src/cluster_legacy.c",
+      "function": "clusterProcessPacket",
+      "line": 2945,
+      "vuln_type": "other",
+      "status": "confirmed",
+      "confidence": "high",
+      "cwe_id": "CWE-306",
+      "candidate_reasoning": "Cluster bus accepts connections with no cryptographic auth \u2014 only 4-byte magic 'RCmb' and version check. Any network peer reaching the cluster port can inject MEET messages (join cluster unconditionally at line 2962), PUBLISH messages, or FAILOVER_AUTH_REQUEST. No signing or identity verification of messages.",
+      "dataflow_summary": "Network attacker -> cluster bus port -> clusterReadHandler -> clusterProcessPacket -> MEET: clusterAddNode / PUBLISH: pubsubPublishMessage / FAILOVER: clusterSendFailoverAuthIfNeeded",
+      "proof_lines": [
+        2778,
+        2962
+      ],
+      "proof_source": "Any network connection to cluster bus port (client_port + 10000)",
+      "proof_sink": "clusterAddNode(), pubsubPublishMessage(), clusterSendFailoverAuthIfNeeded()",
+      "origin": "claude_native",
+      "stage_a_summary": {
+        "confidence": "high",
+        "status": "not_disproven",
+        "candidate_reasoning": "Cluster bus has no authentication beyond 4-byte magic. Any on-path attacker can inject MEET, PUBLISH, or FAILOVER requests. Active in cluster mode by default."
+      },
+      "stage_b_summary": {
+        "hypothesis_id": "H5",
+        "hypothesis_status": "confirmed",
+        "proximity": 8,
+        "attack_path_id": "AP-005"
+      },
+      "checklist_verified": true,
+      "sanity_check": {
+        "passed": true,
+        "file_exists": true,
+        "code_verbatim": true,
+        "flow_real": true,
+        "code_reachable": true,
+        "verified_code_lines": [
+          2940,
+          2964
+        ],
+        "issues": [
+          "Verified: line 2945 if (!sender && type == CLUSTERMSG_TYPE_MEET) -> line 2958 createClusterNode -> line 2962 clusterAddNode. Unconditional for unknown senders."
+        ]
+      },
+      "stage_c_summary": {
+        "passed": true,
+        "checks": {
+          "file_exists": true,
+          "code_verbatim": true,
+          "flow_real": true,
+          "reachable": true
+        }
+      },
+      "test_code_flag": false,
+      "ruling": {
+        "evidence_synthesis": {
+          "stage_a_confidence": "high",
+          "stage_b_hypothesis": "confirmed",
+          "stage_c_passed": true,
+          "synthesis": "Cluster bus accepts MEET/PUBLISH/FAILOVER with only 4-byte magic check. No crypto auth. Any network peer reaching bus port can join cluster, inject pub/sub, or influence failover."
+        },
+        "status": "confirmed",
+        "disqualifier": null,
+        "reason": null,
+        "checks": {
+          "code_context": "production",
+          "preconditions": [
+            "requires network access to cluster bus port (client_port + 10000)",
+            "cluster mode must be enabled"
+          ],
+          "hedging_detected": []
+        }
+      },
+      "cvss_vector": "CVSS:3.1/AV:A/AC:L/PR:N/UI:N/S:C/C:L/I:H/A:H",
+      "stage_d_summary": {
+        "ruling": "confirmed",
+        "disqualifier": null,
+        "cvss_vector": "CVSS:3.1/AV:A/AC:L/PR:N/UI:N/S:C/C:L/I:H/A:H"
+      },
+      "feasibility": {
+        "status": "not_applicable"
+      },
+      "stage_e_summary": {
+        "status": "not_applicable"
+      },
+      "final_status": "confirmed",
+      "is_exploitable": false,
+      "cvss_score_estimate": 9.6,
+      "severity_assessment": "critical",
+      "stage_f_summary": {
+        "corrections": [],
+        "review_notes": "CVSS 9.6 Critical. AV:A confirmed \u2014 cluster bus is a separate port, typically requires same-network access. S:C confirmed \u2014 MEET injection affects all cluster nodes. No TLS or HMAC on cluster bus messages. No corrections."
+      }
+    },
+    {
+      "id": "FIND-006",
+      "file": "src/replication.c",
+      "function": "syncWithMaster",
+      "line": 3133,
+      "vuln_type": "deserialization",
+      "status": "confirmed",
+      "confidence": "medium",
+      "cwe_id": "CWE-924",
+      "candidate_reasoning": "masterauth defaults to NULL. Without it, replica does not send AUTH. If TLS not configured (default), replication is cleartext TCP. MITM can intercept handshake and inject crafted FULLRESYNC response with malicious RDB. Replica loads via rdbLoadRioWithLoadingCtx (replication.c:2518) with no integrity verification.",
+      "dataflow_summary": "MITM on replication port -> forge FULLRESYNC -> replica calls rdbLoadRioWithLoadingCtx with attacker-controlled RDB data",
+      "proof_lines": [
+        3133,
+        3143
+      ],
+      "proof_source": "Network-level MITM on replication TCP stream (no auth, no TLS by default)",
+      "proof_sink": "rdbLoadRioWithLoadingCtx(replication.c:2518) with attacker-supplied RDB",
+      "origin": "claude_native",
+      "stage_a_summary": {
+        "confidence": "medium",
+        "status": "not_disproven",
+        "candidate_reasoning": "masterauth=NULL by default, no TLS by default. Replication is cleartext unauthenticated. MITM can inject arbitrary RDB. Exploitability depends on RDB deserialization safety."
+      },
+      "stage_b_summary": {
+        "hypothesis_id": "H6",
+        "hypothesis_status": "confirmed",
+        "proximity": 5,
+        "attack_path_id": "AP-006"
+      },
+      "checklist_verified": true,
+      "sanity_check": {
+        "passed": true,
+        "file_exists": true,
+        "code_verbatim": true,
+        "flow_real": true,
+        "code_reachable": true,
+        "verified_code_lines": [
+          3131,
+          3147
+        ],
+        "issues": [
+          "Verified: line 3133 if (server.masterauth) \u2014 AUTH only sent when masterauth is set. Default is NULL."
+        ]
+      },
+      "stage_c_summary": {
+        "passed": true,
+        "checks": {
+          "file_exists": true,
+          "code_verbatim": true,
+          "flow_real": true,
+          "reachable": true
+        }
+      },
+      "test_code_flag": false,
+      "ruling": {
+        "evidence_synthesis": {
+          "stage_a_confidence": "medium",
+          "stage_b_hypothesis": "confirmed",
+          "stage_c_passed": true,
+          "synthesis": "Replication stream is cleartext with no auth by default. MITM can inject crafted RDB. Data integrity compromise confirmed. Memory corruption via RDB parser requires separate bugs."
+        },
+        "status": "confirmed",
+        "disqualifier": null,
+        "reason": null,
+        "checks": {
+          "code_context": "production",
+          "preconditions": [
+            "requires MITM position on replication network path",
+            "masterauth must be NULL (default)",
+            "TLS must be off (default)"
+          ],
+          "hedging_detected": []
+        }
+      },
+      "cvss_vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:N/I:H/A:H",
+      "stage_d_summary": {
+        "ruling": "confirmed",
+        "disqualifier": null,
+        "cvss_vector": "CVSS:3.1/AV:N/AC:H/PR:N/UI:N/S:U/C:N/I:H/A:H"
+      },
+      "feasibility": {
+        "status": "not_applicable"
+      },
+      "stage_e_summary": {
+        "status": "not_applicable"
+      },
+      "final_status": "confirmed",
+      "is_exploitable": false,
+      "cvss_score_estimate": 7.4,
+      "severity_assessment": "high",
+      "stage_f_summary": {
+        "corrections": [],
+        "review_notes": "CVSS 7.4 High. AC:H correct for MITM requirement. C:N appropriate \u2014 attacker can inject data but doesn't read existing data via this path alone. No corrections."
+      }
+    },
+    {
+      "id": "FIND-007",
+      "file": "src/acl.c",
+      "function": "internalAuth",
+      "line": 3220,
+      "vuln_type": "other",
+      "status": "confirmed",
+      "confidence": "medium",
+      "cwe_id": "CWE-287",
+      "candidate_reasoning": "AUTH with username 'internal connection' and correct cluster secret sets c->user=NULL and c->authenticated=1. All ACL checks return ACL_OK when u==NULL. The cluster secret is transmitted in plaintext PING extension messages over the cluster bus. In non-TLS deployments, a passive network observer can sniff the secret and authenticate as unrestricted internal connection on the client port.",
+      "dataflow_summary": "Sniff cluster bus PING ext -> extract internal_secret -> AUTH 'internal connection' <secret> on client port -> c->user=NULL -> all ACL checks bypassed",
+      "proof_lines": [
+        3220,
+        3241
+      ],
+      "proof_source": "AUTH 'internal connection' <sniffed_secret> from any network client",
+      "proof_sink": "c->user=NULL at acl.c:3241; ACL_OK at lines 1776, 1832, 1859",
+      "origin": "claude_native",
+      "stage_a_summary": {
+        "confidence": "medium",
+        "status": "not_disproven",
+        "candidate_reasoning": "Internal auth path accessible from client port. Cluster secret is strong (40 hex chars from /dev/urandom) but transmitted in plaintext PING extensions. Non-TLS cluster deployments are vulnerable to secret sniffing -> full ACL bypass."
+      },
+      "stage_b_summary": {
+        "hypothesis_id": "H7",
+        "hypothesis_status": "confirmed",
+        "proximity": 6,
+        "attack_path_id": "AP-007"
+      },
+      "checklist_verified": true,
+      "sanity_check": {
+        "passed": true,
+        "file_exists": true,
+        "code_verbatim": true,
+        "flow_real": true,
+        "code_reachable": true,
+        "verified_code_lines": [
+          3220,
+          3248
+        ],
+        "issues": [
+          "Verified: line 3241 c->user = NULL. Line 3238 c->authenticated = 1. Lines 3235 time_independent_strcmp with cluster secret."
+        ]
+      },
+      "stage_c_summary": {
+        "passed": true,
+        "checks": {
+          "file_exists": true,
+          "code_verbatim": true,
+          "flow_real": true,
+          "reachable": true
+        }
+      },
+      "test_code_flag": false,
+      "ruling": {
+        "evidence_synthesis": {
+          "stage_a_confidence": "medium",
+          "stage_b_hypothesis": "confirmed",
+          "stage_c_passed": true,
+          "synthesis": "Cluster secret transmitted in plaintext PING extensions. Sniffing it enables AUTH as 'internal connection' on client port, setting c->user=NULL which bypasses all ACL checks. Full privilege escalation from network observer to unrestricted access."
+        },
+        "status": "confirmed",
+        "disqualifier": null,
+        "reason": null,
+        "checks": {
+          "code_context": "production",
+          "preconditions": [
+            "requires passive sniffing on cluster bus network",
+            "cluster mode must be enabled",
+            "TLS for cluster bus must be off"
+          ],
+          "hedging_detected": []
+        }
+      },
+      "cvss_vector": "CVSS:3.1/AV:A/AC:H/PR:N/UI:N/S:C/C:H/I:H/A:H",
+      "stage_d_summary": {
+        "ruling": "confirmed",
+        "disqualifier": null,
+        "cvss_vector": "CVSS:3.1/AV:A/AC:H/PR:N/UI:N/S:C/C:H/I:H/A:H"
+      },
+      "feasibility": {
+        "status": "not_applicable"
+      },
+      "stage_e_summary": {
+        "status": "not_applicable"
+      },
+      "final_status": "confirmed",
+      "is_exploitable": false,
+      "cvss_score_estimate": 8.3,
+      "severity_assessment": "high",
+      "stage_f_summary": {
+        "corrections": [],
+        "review_notes": "CVSS 8.3 High. AV:A and AC:H correct \u2014 requires passive sniffing on cluster bus network segment (adjacent), which is a non-trivial precondition. S:C correct \u2014 bypasses ALL ACL, enabling full unrestricted access including CONFIG, MODULE, DEBUG if enabled. No corrections."
+      }
+    },
+    {
+      "id": "FIND-008",
+      "file": ".github/workflows/daily.yml",
+      "function": "run steps across ~20 jobs (test, sentinel tests, cluster tests)",
+      "line": 60,
+      "vuln_type": "command_injection",
+      "status": "ruled_out",
+      "confidence": "medium",
+      "cwe_id": "CWE-78",
+      "candidate_reasoning": "github.event.inputs.test_args and cluster_test_args are interpolated directly into run: shell commands (e.g., './runtest --accurate --verbose --dump-logs ${{github.event.inputs.test_args}}'). Exploitable by any user with write access who can trigger workflow_dispatch. Not exploitable by external PR submitters (no pull_request_target trigger). Affects ~60+ run: steps across all jobs.",
+      "dataflow_summary": "github.event.inputs.test_args (workflow_dispatch) -> direct string interpolation into bash run: command -> shell execution on CI runner",
+      "proof_lines": [
+        60,
+        63
+      ],
+      "proof_source": "github.event.inputs.test_args / cluster_test_args",
+      "proof_sink": "./runtest / ./runtest-sentinel / ./runtest-cluster shell invocation",
+      "origin": "claude_native",
+      "stage_a_summary": {
+        "confidence": "medium",
+        "status": "not_disproven",
+        "candidate_reasoning": "Exploitable by repo maintainers via workflow_dispatch. Not exploitable by external PRs. Impact: arbitrary command execution on CI runner with access to GITHUB_TOKEN and repo secrets."
+      },
+      "stage_b_summary": {
+        "hypothesis_id": "H8",
+        "hypothesis_status": "confirmed",
+        "proximity": 7,
+        "attack_path_id": "AP-008"
+      },
+      "checklist_verified": false,
+      "sanity_check": {
+        "passed": true,
+        "file_exists": true,
+        "code_verbatim": true,
+        "flow_real": true,
+        "code_reachable": true,
+        "verified_code_lines": [
+          60,
+          63
+        ],
+        "issues": [
+          "File not in C source inventory (YAML workflow file) but verified to exist at .github/workflows/daily.yml"
+        ]
+      },
+      "stage_c_summary": {
+        "passed": true,
+        "checks": {
+          "file_exists": true,
+          "code_verbatim": true,
+          "flow_real": true,
+          "reachable": true
+        }
+      },
+      "test_code_flag": false,
+      "ruling": {
+        "evidence_synthesis": {
+          "stage_a_confidence": "medium",
+          "stage_b_hypothesis": "confirmed",
+          "stage_c_passed": true,
+          "synthesis": "Real shell injection in CI workflow, but requires write access which already implies ability to modify CI pipelines directly."
+        },
+        "status": "ruled_out",
+        "disqualifier": "D-1.5",
+        "reason": "Exploitation requires repo write access to trigger workflow_dispatch. A user with write access can already modify the workflow file directly (or any code in the repo). Shell injection via dispatch input is a stealthier vector but does not grant capabilities beyond what write access already provides.",
+        "checks": {
+          "code_context": "production",
+          "preconditions": [
+            "requires repo write access"
+          ],
+          "hedging_detected": []
+        }
+      },
+      "cvss_vector": null,
+      "stage_d_summary": {
+        "ruling": "ruled_out",
+        "disqualifier": "D-1.5",
+        "cvss_vector": null
+      },
+      "final_status": "ruled_out",
+      "is_exploitable": false,
+      "stage_f_summary": {
+        "corrections": [],
+        "review_notes": "Ruled out D-1.5. Correct \u2014 write access implies ability to modify workflow files directly."
+      }
+    },
+    {
+      "id": "FIND-009",
+      "file": ".github/workflows/daily.yml",
+      "function": "prep step (all ~20 jobs)",
+      "line": 44,
+      "vuln_type": "command_injection",
+      "status": "ruled_out",
+      "confidence": "medium",
+      "cwe_id": "CWE-77",
+      "candidate_reasoning": "github.event.inputs.use_repo and use_git_ref are written to GITHUB_ENV via echo. A newline in use_repo enables GITHUB_ENV injection to poison environment variables. The resulting env vars feed into actions/checkout repository: parameter, allowing checkout of attacker-controlled code. Requires write access to dispatch.",
+      "dataflow_summary": "github.event.inputs.use_repo (newline-injected) -> GITHUB_ENV >> -> env.GITHUB_REPOSITORY -> actions/checkout repository: -> attacker code executed",
+      "proof_lines": [
+        42,
+        53
+      ],
+      "proof_source": "github.event.inputs.use_repo with embedded newline",
+      "proof_sink": "actions/checkout@v4 repository: parameter -> subsequent make/runtest execution",
+      "origin": "claude_native",
+      "stage_a_summary": {
+        "confidence": "medium",
+        "status": "not_disproven",
+        "candidate_reasoning": "GITHUB_ENV injection via newline in use_repo enables environment poisoning -> attacker-controlled checkout -> code execution. Requires write access."
+      },
+      "stage_b_summary": {
+        "hypothesis_id": "H9",
+        "hypothesis_status": "confirmed",
+        "proximity": 7,
+        "attack_path_id": "AP-009"
+      },
+      "checklist_verified": false,
+      "sanity_check": {
+        "passed": true,
+        "file_exists": true,
+        "code_verbatim": true,
+        "flow_real": true,
+        "code_reachable": true,
+        "verified_code_lines": [
+          42,
+          53
+        ],
+        "issues": [
+          "File not in C source inventory (YAML workflow file) but verified to exist at .github/workflows/daily.yml"
+        ]
+      },
+      "stage_c_summary": {
+        "passed": true,
+        "checks": {
+          "file_exists": true,
+          "code_verbatim": true,
+          "flow_real": true,
+          "reachable": true
+        }
+      },
+      "test_code_flag": false,
+      "ruling": {
+        "evidence_synthesis": {
+          "stage_a_confidence": "medium",
+          "stage_b_hypothesis": "confirmed",
+          "stage_c_passed": true,
+          "synthesis": "Real GITHUB_ENV injection, but write access prerequisite implies equivalent capabilities via direct file modification."
+        },
+        "status": "ruled_out",
+        "disqualifier": "D-1.5",
+        "reason": "Same privilege tautology as FIND-008: GITHUB_ENV injection requires write access, which already provides the ability to modify workflow files and repository code directly.",
+        "checks": {
+          "code_context": "production",
+          "preconditions": [
+            "requires repo write access"
+          ],
+          "hedging_detected": []
+        }
+      },
+      "cvss_vector": null,
+      "stage_d_summary": {
+        "ruling": "ruled_out",
+        "disqualifier": "D-1.5",
+        "cvss_vector": null
+      },
+      "final_status": "ruled_out",
+      "is_exploitable": false,
+      "stage_f_summary": {
+        "corrections": [],
+        "review_notes": "Ruled out D-1.5. Same rationale as FIND-008."
+      }
+    },
+    {
+      "id": "FIND-010",
+      "file": "utils/redis-sha1.rb",
+      "function": "redisSha1",
+      "line": 25,
+      "vuln_type": "weak_crypto",
+      "status": "ruled_out",
+      "confidence": "low",
+      "cwe_id": "CWE-327",
+      "candidate_reasoning": "Digest::SHA1 used for dataset consistency checking between master/replica and in HLL test scripts. SHA1 is cryptographically broken. However, usage is non-security-critical: consistency checking and test data generation. Low real-world impact but a compliance/policy finding.",
+      "dataflow_summary": "Redis key+value data -> Digest::SHA1.hexdigest(sha1+k) chaining -> dataset fingerprint",
+      "proof_lines": [
+        25,
+        43
+      ],
+      "proof_source": "Redis key/value data from local instance",
+      "proof_sink": "Digest::SHA1.hexdigest \u2014 weak hash function",
+      "origin": "claude_native",
+      "stage_a_summary": {
+        "confidence": "low",
+        "status": "not_disproven",
+        "candidate_reasoning": "SHA1 used in non-security context (dataset checksums and test data). Collision attack not practically exploitable here. Policy/compliance finding only."
+      },
+      "stage_b_summary": {
+        "hypothesis_id": "H10",
+        "hypothesis_status": "confirmed",
+        "proximity": 0,
+        "attack_path_id": "AP-010"
+      },
+      "checklist_verified": true,
+      "sanity_check": {
+        "passed": true,
+        "file_exists": true,
+        "code_verbatim": true,
+        "flow_real": true,
+        "code_reachable": true,
+        "verified_code_lines": [
+          25,
+          43
+        ],
+        "issues": []
+      },
+      "stage_c_summary": {
+        "passed": true,
+        "checks": {
+          "file_exists": true,
+          "code_verbatim": true,
+          "flow_real": true,
+          "reachable": true
+        }
+      },
+      "test_code_flag": false,
+      "ruling": {
+        "evidence_synthesis": {
+          "stage_a_confidence": "low",
+          "stage_b_hypothesis": "confirmed",
+          "stage_c_passed": true,
+          "synthesis": "Real SHA1 usage but in non-security context (dataset fingerprinting). No security impact."
+        },
+        "status": "ruled_out",
+        "disqualifier": "D-4",
+        "reason": "SHA1 used for non-security dataset consistency checking and test data generation in Ruby utility scripts. No authentication, signing, or cryptographic verification depends on SHA1 strength. No exploitable security impact.",
+        "checks": {
+          "code_context": "production",
+          "preconditions": [],
+          "hedging_detected": []
+        }
+      },
+      "cvss_vector": null,
+      "stage_d_summary": {
+        "ruling": "ruled_out",
+        "disqualifier": "D-4",
+        "cvss_vector": null
+      },
+      "final_status": "ruled_out",
+      "is_exploitable": false,
+      "stage_f_summary": {
+        "corrections": [],
+        "review_notes": "Ruled out D-4. Correct \u2014 SHA1 in non-security context."
+      }
+    },
+    {
+      "id": "FIND-011",
+      "file": "src/networking.c",
+      "function": "processMultibulkBuffer",
+      "line": 3130,
+      "vuln_type": "integer_overflow",
+      "status": "disproven",
+      "confidence": "high",
+      "cwe_id": "CWE-190",
+      "candidate_reasoning": "multibulk count parsed from client input; checked whether overflow in assignment to int",
+      "dataflow_summary": "client RESP data -> string2ll -> ll -> c->multibulklen (int)",
+      "proof_lines": [
+        3129,
+        3142
+      ],
+      "proof_source": "network client sending *<count>",
+      "proof_sink": "c->multibulklen = ll",
+      "origin": "claude_native",
+      "disproved_because": {
+        "investigated": "Checked bounds validation: !ok || ll > INT_MAX prevents values > INT_MAX; subsequent argv_len uses min() with INT_MAX/2 guards",
+        "conclusion": "Bounds check present and correct. Assignment of INT_MAX to int is safe.",
+        "would_reconsider_if": "A path bypasses the INT_MAX check or if argv_len doubling logic has an off-by-one"
+      },
+      "stage_a_summary": {
+        "confidence": "high",
+        "status": "disproven",
+        "candidate_reasoning": "bounds check present and correct"
+      },
+      "checklist_verified": true,
+      "final_status": "disproven",
+      "is_exploitable": false
+    },
+    {
+      "id": "FIND-012",
+      "file": "src/redis-cli.c",
+      "function": "cliSetPreferences",
+      "line": 3390,
+      "vuln_type": "format_string",
+      "status": "disproven",
+      "confidence": "high",
+      "cwe_id": "CWE-134",
+      "candidate_reasoning": "Semgrep flagged insecure printf. Checked: argv[1] used as %s argument, not format string.",
+      "dataflow_summary": ".redisclirc or :set command -> argv[1] -> printf %s argument",
+      "proof_lines": [
+        3390,
+        3392
+      ],
+      "proof_source": ".redisclirc content",
+      "proof_sink": "printf with literal format string, user data as %s arg",
+      "origin": "sarif_import",
+      "disproved_because": {
+        "investigated": "Read printf call: format string is a literal, user data is %s argument",
+        "conclusion": "Not a format string vulnerability. Client-side tool only.",
+        "would_reconsider_if": "Format string was user-controlled (it is not)"
+      },
+      "stage_a_summary": {
+        "confidence": "high",
+        "status": "disproven",
+        "candidate_reasoning": "printf uses literal format string; client tool only"
+      },
+      "checklist_verified": true,
+      "final_status": "disproven",
+      "is_exploitable": false
+    },
+    {
+      "id": "FIND-013",
+      "file": "modules/vector-sets/examples/cli-tool/cli.py",
+      "function": "get_embedding",
+      "line": 30,
+      "vuln_type": "ssrf",
+      "status": "disproven",
+      "confidence": "high",
+      "cwe_id": "CWE-918",
+      "candidate_reasoning": "Semgrep flagged dynamic URL. Both SSRF findings are in standalone Python example scripts, not the Redis server binary.",
+      "dataflow_summary": "CLI --ollama-url arg -> requests.post(url) in example script",
+      "proof_lines": [
+        24,
+        30
+      ],
+      "proof_source": "--ollama-url CLI argument to standalone Python tool",
+      "proof_sink": "requests.post(url) in example script",
+      "origin": "sarif_import",
+      "disproved_because": {
+        "investigated": "Confirmed both SSRF findings are in standalone example CLI tools under modules/vector-sets/examples/, not the Redis server",
+        "conclusion": "Not a Redis server vulnerability. Example tool with developer-controlled input.",
+        "would_reconsider_if": "The example scripts were integrated into the server or exposed to network input"
+      },
+      "stage_a_summary": {
+        "confidence": "high",
+        "status": "disproven",
+        "candidate_reasoning": "SSRF in standalone example tool, not Redis server"
+      },
+      "checklist_verified": true,
+      "final_status": "disproven",
+      "is_exploitable": false
+    }
+  ],
+  "summary": {
+    "total_input": 0,
+    "confirmed": 0,
+    "ruled_out": 0,
+    "exploitable": 0,
+    "constrained": 0,
+    "blocked": 0
+  },
+  "stage_f_review": "No corrections needed. All 5 confirmed findings have consistent CVSS vectors matching their access models. Ruled-out findings have appropriate disqualifiers. Proximity spread flag is moot (FIND-004 is ruled out)."
+}
