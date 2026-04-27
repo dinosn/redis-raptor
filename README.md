@@ -1,6 +1,6 @@
 # Redis Security Assessment with RAPTOR
 
-Autonomous security assessment of the [Redis](https://github.com/redis/redis) codebase using the [RAPTOR](https://github.com/dinosn/raptor) offensive/defensive research framework.
+Autonomous security assessment of the [Redis](https://github.com/redis/redis) codebase using the [RAPTOR](https://github.com/gadievron/raptor) offensive/defensive research framework.
 
 **Target:** Redis `unstable` branch (commit `47c51369e`) + Docker images Redis 7.2.13 and 8.6.2  
 **Date:** 2026-04-27  
@@ -260,4 +260,4 @@ Redis provides configuration options to mitigate most of these findings:
 
 ---
 
-*Generated with [RAPTOR](https://github.com/dinosn/raptor) + Claude Opus 4*
+*Generated with [RAPTOR](https://github.com/gadievron/raptor) + Claude Opus 4*
